@@ -1,0 +1,1110 @@
+# Header ----
+
+# Author: Leigh Sheridan
+
+# Date: August 20th, 2022
+
+# R version: 4.2.1
+
+# Purpose: Create a Medicaid cohort of relevant cardiovascular patients and depression patients for analysis 
+
+ 
+
+ 
+
+# -------------------- Part 0: Set up -----------------------------------------------------------
+
+rm(list=ls())
+
+pacman::p_load(data.table, DBI, keyring, glue)
+
+library(tidyverse)
+
+library(dplyr)
+
+library(Hmisc)
+
+library(claims)
+
+library(data.table)
+
+library(stats)
+
+library(tidyr)
+
+ 
+
+ 
+
+# Create a connection to hhs_analytics_workspace on Azure server 16 ----
+
+devtools::source_url(https://raw.githubusercontent.com/PHSKC-APDE/apde/main/R/create_db_connection.R)
+
+hhsaw16 = create_db_connection(
+
+  server = "hhsaw",
+
+  prod = T,
+
+  interactive = F)
+
+ 
+
+# Count cohort for all
+
+medicaid_total = setDT(claims::claims_elig(
+
+  conn = hhsaw16,
+
+  server = 'hhsaw',
+
+  source = c("mcaid"),
+
+  from_date = '2019-01-01',
+
+  to_date = '2019-12-31',
+
+  geo_kc_min = 100,
+
+  cov_min = 100,
+
+  show_query = F
+
+))
+
+ 
+
+nrow(medicaid_total)
+
+length(unique(medicaid_total$id_mcaid))
+
+ 
+
+# Pull in subsetted cohort
+
+ccwcohort = setDT(claims::claims_elig(
+
+  conn = hhsaw16,
+
+  server = 'hhsaw',
+
+  source = c("mcaid"),
+
+  from_date = '2017-01-01',
+
+  to_date = '2019-12-31',
+
+  age_min = 18,
+
+  age_max = 62,
+
+  geo_kc_min = 100,
+
+  cov_min = 100,
+
+  show_query = F
+
+))
+
+ 
+
+ccwcohort <- ccwcohort[ccwcohort$dual == 0,]
+
+ccwcohort <- ccwcohort[ccwcohort$full_benefit == 1,]
+
+ 
+
+nrow(ccwcohort)
+
+length(unique(ccwcohort$id_mcaid))
+
+
+ 
+
+# Pull in chronic diagnoses
+
+chronic <- setDT(DBI::dbGetQuery(conn = hhsaw16, "SELECT *
+
+                                  FROM [claims].[final_mcaid_claim_ccw]"))
+ 
+
+ 
+
+# subset to dates of interest
+
+chronic_yrs <- chronic[from_date < "2017-01-01" & to_date > "2019-12-31"]
+
+summary(chronic_yrs$from_date); summary(chronic_yrs$to_date)
+
+ 
+
+# subset to columns of interest
+
+chronic_yrs <- chronic_yrs[, .(id_mcaid, ccw_desc)]
+
+ 
+
+# Check for multiples
+length(unique(chronic_yrs$id_mcaid))
+
+ 
+
+# Reshape from long to wide
+wide_data <- reshape(data = chronic_yrs, idvar = "id_mcaid", v.names = "ccw_desc", timevar = "ccw_desc",
+
+                   direction = "wide", sep = " ")
+
+wide_data[]
+
+ 
+
+wide_data[is.na(wide_data)] = 0
+
+ 
+
+ 
+
+# Rename variables to be cleaner. Could probably also do this with a for loop. 
+
+wide_data <- wide_data %>% rename(ccw_depression = `ccw_desc ccw_depression`)
+wide_data <- wide_data %>%
+
+  rename(ccw_hypothyroid = `ccw_desc ccw_hypothyroid`,
+
+         ccw_mi = `ccw_desc ccw_mi`,
+
+         ccw_alzheimer = `ccw_desc ccw_alzheimer`,
+
+         ccw_alzheimer_related = `ccw_desc ccw_alzheimer_related`,
+
+         ccw_anemia = `ccw_desc ccw_anemia`,
+
+         ccw_asthma = `ccw_desc ccw_asthma`,
+
+         ccw_atrial_fib = `ccw_desc ccw_atrial_fib`,
+
+         ccw_bph = `ccw_desc ccw_bph`,
+
+         ccw_cataract = `ccw_desc ccw_cataract`,
+
+         ccw_chronic_kidney = `ccw_desc ccw_chr_kidney_dis`,
+
+         ccw_cancer_colorectal = `ccw_desc ccw_cancer_colorectal`,
+
+         ccw_copd = `ccw_desc ccw_copd`,
+
+         ccw_diabetes = `ccw_desc ccw_diabetes`,
+
+         ccw_cancer_endometrial = `ccw_desc ccw_cancer_endometrial`,
+
+         ccw_cancer_breast = `ccw_desc ccw_cancer_breast`,
+
+         ccw_glaucoma = `ccw_desc ccw_glaucoma`,
+
+         ccw_heart_failure = `ccw_desc ccw_heart_failure`,
+
+         ccw_hip_fracture = `ccw_desc ccw_hip_fracture`,
+
+         ccw_hyperlipid = `ccw_desc ccw_hyperlipid`,
+
+         ccw_hypertension = `ccw_desc ccw_hypertension`,
+
+         ccw_ischemic_heart = `ccw_desc ccw_ischemic_heart_dis`,
+
+         ccw_cancer_lung = `ccw_desc ccw_cancer_lung`,
+
+         ccw_osteoporosis = `ccw_desc ccw_osteoporosis`,
+
+         ccw_cancer_prostate = `ccw_desc ccw_cancer_prostate`,
+
+         ccw_arthritis = `ccw_desc ccw_arthritis`,
+
+         ccw_stroke = `ccw_desc ccw_stroke`,
+
+         ccw_cancer_urologic = `ccw_desc ccw_cancer_urologic`,
+
+         ccw_non_alzheimers_dementia = `ccw_desc ccw_non_alzheimer_dementia`,
+
+         ccw_parkinsons = `ccw_desc ccw_parkinsons`,
+
+         ccw_pneumonia = `ccw_desc ccw_pneumonia`)
+
+ 
+
+names(wide_data)
+
+ 
+
+# ccw_depression to 0/1 variable
+
+wide_data$depression <- ifelse(wide_data$ccw_depression=="ccw_depression",1,0)
+
+table(wide_data$depression)
+
+ 
+
+ 
+
+# ccw_cardiovasc to 0/1 variable
+
+wide_data[, cardiovascular := 0]
+
+wide_data[ccw_hypertension=='ccw_hypertension' |
+
+          ccw_atrial_fib=='ccw_atrial_fib' |
+
+          ccw_hyperlipid=='ccw_hyperlipid' |
+
+          ccw_stroke=='ccw_stroke' |
+
+          ccw_heart_failure=='ccw_heart_failure' |
+
+          ccw_ischemic_heart=='ccw_ischemic_heart' |
+
+          ccw_mi=='ccw_mi' ,
+
+        cardiovascular := 1]
+
+ 
+
+table(wide_data$cardiovascular)
+
+ 
+
+ 
+
+# Create neither 0/1 variable
+
+wide_data$neither <- ifelse(wide_data$depression=='1', 0,
+
+                            ifelse(wide_data$cardiovascular=='1', 0, 1))
+
+table(wide_data$neither)
+
+ 
+
+# Recode all responses for to 0/1 variables
+
+message("Might change this to a simple loop instead.")
+
+wide_data$ccw_hypothyroid <- ifelse(wide_data$ccw_hypothyroid=='ccw_hypothyroid', 1, 0)
+
+wide_data$ccw_mi <- ifelse(wide_data$ccw_mi=='ccw_mi', 1, 0)
+
+wide_data$ccw_alzheimer <- ifelse(wide_data$ccw_alzheimer=='ccw_alzheimer', 1, 0)
+
+wide_data$ccw_alzheimer_related <- ifelse(wide_data$ccw_alzheimer_related=='ccw_alzheimer_related', 1, 0)
+
+wide_data$ccw_anemia <- ifelse(wide_data$ccw_anemia=='ccw_anemia', 1, 0)
+
+wide_data$ccw_asthma <- ifelse(wide_data$ccw_asthma=='ccw_asthma', 1, 0)
+
+wide_data$ccw_atrial_fib <- ifelse(wide_data$ccw_atrial_fib=='ccw_atrial_fib', 1, 0)
+
+wide_data$ccw_bph <- ifelse(wide_data$ccw_bph=='ccw_bph', 1, 0)
+
+wide_data$ccw_cataract <- ifelse(wide_data$ccw_cataract=='ccw_cataract', 1, 0)
+
+wide_data$ccw_chronic_kidney <- ifelse(wide_data$ccw_chronic_kidney=='ccw_chronic_kidney', 1, 0)
+
+wide_data$ccw_cancer_colorectal <- ifelse(wide_data$ccw_cancer_colorectal=='ccw_cancer_colorectal', 1, 0)
+
+wide_data$ccw_copd <- ifelse(wide_data$ccw_copd=='ccw_copd', 1, 0)
+
+wide_data$ccw_depression <- ifelse(wide_data$ccw_depression=='ccw_depression', 1, 0)
+
+wide_data$ccw_diabetes <- ifelse(wide_data$ccw_diabetes=='ccw_diabetes', 1, 0)
+
+wide_data$ccw_cancer_endometrial <- ifelse(wide_data$ccw_cancer_endometrial=='ccw_cancer_endometrial', 1, 0)
+
+wide_data$ccw_cancer_breast <- ifelse(wide_data$ccw_cancer_breast=='ccw_cancer_breast', 1, 0)
+
+wide_data$ccw_glaucoma <- ifelse(wide_data$ccw_glaucoma=='ccw_glaucoma', 1, 0)
+
+wide_data$ccw_heart_failure <- ifelse(wide_data$ccw_heart_failure=='ccw_heart_failure', 1, 0)
+
+wide_data$ccw_hip_fracture <- ifelse(wide_data$ccw_hip_fracture=='ccw_hip_fracture', 1, 0)
+
+wide_data$ccw_hyperlipid <- ifelse(wide_data$ccw_hyperlipid=='ccw_hyperlipid', 1, 0)
+
+wide_data$ccw_hypertension <- ifelse(wide_data$ccw_hypertension=='ccw_hypertension', 1, 0)
+
+wide_data$ccw_ischemic_heart <- ifelse(wide_data$ccw_ischemic_heart=='ccw_ischemic_heart', 1, 0)
+
+wide_data$ccw_cancer_lung <- ifelse(wide_data$ccw_cancer_lung=='ccw_cancer_lung', 1, 0)
+
+wide_data$ccw_osteoporosis <- ifelse(wide_data$ccw_osteoporosis=='ccw_osteoporosis', 1, 0)
+
+wide_data$ccw_cancer_prostate <- ifelse(wide_data$ccw_cancer_prostate=='ccw_cancer_prostate', 1, 0)
+
+wide_data$ccw_arthritis <- ifelse(wide_data$ccw_arthritis=='ccw_arthritis', 1, 0)
+
+wide_data$ccw_stroke <- ifelse(wide_data$ccw_stroke=='ccw_stroke', 1, 0)
+
+wide_data$ccw_cancer_urologic <- ifelse(wide_data$ccw_cancer_urologic=='ccw_cancer_urologic', 1, 0)
+
+wide_data$ccw_non_alzheimers_dementia <- ifelse(wide_data$ccw_non_alzheimers_dementia=='ccw_non_alzheimers_dementia', 1, 0)
+
+wide_data$ccw_parkinsons <- ifelse(wide_data$ccw_parkinsons=='ccw_parkinsons', 1, 0)
+
+wide_data$ccw_pneumonia <- ifelse(wide_data$ccw_pneumonia=='ccw_pneumonia', 1, 0)
+
+ 
+
+ 
+
+ 
+
+# Sum across rows to create a count of chronic diseases variable
+
+wide_data$chronic_disease_sums = rowSums(wide_data[,c("ccw_hypothyroid", "ccw_mi", "ccw_alzheimer",
+
+                                                  "ccw_alzheimer_related", "ccw_anemia", "ccw_asthma", "ccw_atrial_fib",
+
+                                                  "ccw_bph", "ccw_cataract", "ccw_chronic_kidney", "ccw_cancer_colorectal",
+
+                                                  "ccw_copd", "ccw_depression", "ccw_diabetes", "ccw_cancer_endometrial",
+
+                                                  "ccw_cancer_breast", "ccw_glaucoma", "ccw_heart_failure","ccw_hip_fracture",
+
+                                                  "ccw_hyperlipid","ccw_hypertension", "ccw_ischemic_heart", "ccw_cancer_lung",
+
+                                                  "ccw_osteoporosis", "ccw_cancer_prostate", "ccw_arthritis", "ccw_stroke", "ccw_cancer_urologic",
+
+                                                  "ccw_non_alzheimers_dementia", "ccw_parkinsons", "ccw_pneumonia")])
+
+ 
+
+ 
+
+ 
+
+# Only keep necessary columns from the reshape table
+
+wide_data <- wide_data[, .(id_mcaid, depression, cardiovascular, ccw_other, chronic_disease_sums)]
+
+ 
+
+ 
+
+# ----------------- Part 1: Merge Chronic conditions, recode and filter data ------
+
+ 
+
+# Merge ccwcohort and chronic together
+
+bigtable <- merge(ccwcohort, wide_data, by="id_mcaid", all.x = T, all.y = F)
+
+ 
+
+ 
+
+ 
+
+ 
+
+# Filter to full_benefit_pct >= 70.0
+
+bigtable <- (bigtable[bigtable$full_benefit_pct >= 70,])
+
+ 
+
+# Count number of unique Medicaid IDs; our full cohort.
+
+identical(length(unique(bigtable$id_mcaid)), nrow(bigtable))
+
+ 
+
+# TRUE - no doubles.
+
+ 
+
+# Create a categorical variable for age groups 18-25; 26-35; 36-45; 46-55; 56-62
+
+bigtable$age_group = cut(bigtable$age, c(18, 25, 35, 45, 55, 62),
+
+                         c("18-25", "26-35", "36-45", "46-55", "56-62"), include.lowest=TRUE)
+
+ 
+
+ 
+
+# Remove people who have NA values for the important variables
+
+for(var in c("depression", "cardiovascular", "chronic_disease_sums")){
+
+  bigtable[is.na(get(var)), paste0(var) := 0]
+
+}
+
+ 
+
+for(var in c("neither")) {
+
+  bigtable[is.na(get(var)), paste0(var) := 1]
+
+}
+
+ 
+
+ 
+
+ 
+
+# --------------------- Part 2: Generate descriptive statistics of population --------------------------
+
+ 
+
+# Number with CVD, number with depression, number with neither
+
+   
+
+ 
+
+length(unique(bigtable$id_mcaid))
+
+table(bigtable$depression)
+
+table(bigtable$neither)
+
+table(bigtable$cardiovascular)
+
+ 
+
+ 
+
+ 
+
+ 
+
+# Numbers and Percentages for overall population groups - Race
+
+raceeth_tab <- table(bigtable$race_eth_recent)
+
+raceeth_tab[]
+
+prop.table(raceeth_tab)*100
+
+ 
+
+# Numbers and Percentages for overall population groups - Gender
+
+gender_tab <- table(bigtable$gender_recent)
+
+gender_tab[]
+
+prop.table(gender_tab)*100
+
+ 
+
+ 
+
+# Numbers and Percentages for overall population groups - Age Groups
+
+agegroup_tab <- table(bigtable$age_group)
+
+agegroup_tab[]
+
+(prop.table(agegroup_tab))*100
+
+ 
+
+ 
+
+# Numbers and Percentages for overall population groups - Language
+
+ 
+
+#Numbers and ordering
+
+language_tab <- table(bigtable$lang_max)
+
+language_tab[]
+
+ 
+
+language_tab[order(language_tab,
+                   decreasing = TRUE)]
+
+# Most common languages: English, Spanish/Castilian, Vietnamese, Chinese
+
+# Percentages
+
+(prop.table(language_tab))*100
+
+ 
+
+ 
+
+ 
+
+# Breakdown of population for Race/eth in Depression group, CVD group, and neither group
+
+ 
+
+# Race/eth in CVD group
+
+race_cardiovasc <- table(bigtable$cardiovascular, bigtable$race_eth_recent)
+
+race_cardiovasc[]
+
+(race_cardiovasc/rowSums(race_cardiovasc))*100
+
+rowSums(race_cardiovasc)
+
+ 
+
+ 
+
+# Race/eth in Depression group
+
+race_depression <- table(bigtable$depression, bigtable$race_eth_recent)
+
+race_depression[]
+
+(race_depression/rowSums(race_depression))*100
+
+rowSums(race_depression)
+
+ 
+
+# Race/eth in Neither group
+
+race_chronic <- table(bigtable$neither, bigtable$race_eth_recent)
+
+rowSums(race_chronic)
+
+race_chronic[]
+
+(race_chronic/rowSums(race_chronic))*100
+
+rowSums(race_chronic)
+
+ 
+
+# Breakdown of population for gender in Depression group, CVD group, and neither group
+
+ 
+
+# Gender in CVD group
+
+gender_cardiovasc <- table(bigtable$cardiovascular, bigtable$gender_recent)
+
+gender_cardiovasc[]   
+
+rowSums(gender_cardiovasc)
+
+(gender_cardiovasc/rowSums(gender_cardiovasc))*100
+
+ 
+
+# Gender in Depression group
+
+gender_depression <- table(bigtable$depression, bigtable$gender_recent)
+
+gender_depression[]   
+
+rowSums(gender_depression)
+
+(gender_depression/rowSums(gender_depression))*100
+
+ 
+
+unique(dat$lang_max)
+
+ 
+
+# Gender in Neither group
+
+gender_neither <- table(bigtable$neither, bigtable$gender_recent)
+
+gender_neither[]
+
+rowSums(gender_neither)
+
+(gender_neither/rowSums(gender_neither))*100
+
+ 
+
+ 
+
+# Breakdown of population for age in Depression group, CVD group, and neither group
+
+ 
+
+# Age group in CVD group
+
+age_cardiovasc <- table(bigtable$cardiovascular, bigtable$age_group)
+
+age_cardiovasc[]
+
+rowSums(age_cardiovasc)
+
+(age_cardiovasc/rowSums(age_cardiovasc))*100
+
+ 
+
+# Age group in depression group
+
+age_depression <- table(bigtable$depression, bigtable$age_group)
+
+age_depression[]
+
+rowSums(age_depression)
+
+(age_depression/rowSums(age_depression))*100
+
+ 
+
+# Age group in neither group
+
+age_neither <- table(bigtable$neither, bigtable$age_group)
+
+age_neither[]
+
+rowSums(age_neither)
+
+(age_neither/rowSums(age_neither))*100
+
+ 
+
+ 
+
+# Breakdown of population for language in Depression group, CVD group, and neither group
+
+ 
+
+# Language in CVD Group
+
+lang_cardiovascular <- table(bigtable$cardiovascular, bigtable$lang_max)
+
+lang_cardiovascular[]
+
+rowSums(lang_cardiovascular)
+
+(lang_cardiovascular/rowSums(lang_cardiovascular))*100
+
+ 
+
+# Language in Depression Group
+
+lang_depression <- table(bigtable$depression, bigtable$lang_max)
+
+lang_depression[]
+
+rowSums(lang_depression)
+
+(lang_depression/rowSums(lang_depression))*100
+
+ 
+
+# Language in Neither Group
+
+lang_neither <- table(bigtable$neither, bigtable$lang_max)
+
+lang_neither[]
+
+rowSums(lang_neither)
+
+(lang_neither/rowSums(lang_neither))*100
+
+ 
+
+# Average & SD for number of diagnoses per group: Depression, CVD, neither, and total pop.
+
+ 
+
+# Total population
+
+mean(bigtable$chronic_disease_sums)
+
+sd(bigtable$chronic_disease_sums) 
+
+ 
+
+# For depression
+
+subset_depression <- filter(bigtable, depression == 1)
+
+mean(subset_depression$chronic_disease_sums)
+
+sd(subset_depression$chronic_disease_sums)
+
+ 
+
+# For CVD
+
+subset_cvd <- filter(bigtable, cardiovascular ==1)
+
+mean(subset_cvd$chronic_disease_sums)
+
+sd(subset_cvd$chronic_disease_sums)
+
+ 
+
+# For neither
+
+subset_neither <- filter(bigtable, neither ==1)
+
+mean(subset_neither$chronic_disease_sums)
+
+sd(subset_neither$chronic_disease_sums)
+
+ 
+
+# Median & IQR for number of diagnoses per group: Depression, CVD, neither, and total pop.
+
+ 
+
+# Total pop
+
+median(bigtable$chronic_disease_sums)
+
+IQR(bigtable$chronic_disease_sums) 
+
+ 
+
+# For depression
+
+median(subset_depression$chronic_disease_sums)
+
+IQR(subset_depression$chronic_disease_sums)
+
+ 
+
+# For CVD
+
+median(subset_cvd$chronic_disease_sums)
+
+IQR(subset_cvd$chronic_disease_sums)
+
+ 
+
+# For Neither
+
+median(subset_neither$chronic_disease_sums)
+
+IQR(subset_neither$chronic_disease_sums)
+
+ 
+
+# Create an HRA variable (0/1) for each region: North, South, East, Seattle, and Unknown
+
+message("Comment to myself: This approach is prone to error, might make a two-column table and merge based on HRA code.")
+
+# South
+
+bigtable$Region_South <- ifelse(bigtable$geo_hra_code=='1000', 1,
+
+                                ifelse(bigtable$geo_hra_code=='5000', 1,
+
+                                       ifelse(bigtable$geo_hra_code=='1100', 1,
+
+                                              ifelse(bigtable$geo_hra_code=='7000', 1,
+
+                                                     ifelse(bigtable$geo_hra_code=='8000', 1,
+
+                                                            ifelse(bigtable$geo_hra_code=='9000', 1,
+
+                                                                   ifelse(bigtable$geo_hra_code=='10000', 1,
+
+                                                                          ifelse(bigtable$geo_hra_code=='10100', 1,
+
+                                                                                 ifelse(bigtable$geo_hra_code=='10200', 1,
+
+                                                                                        ifelse(bigtable$geo_hra_code=='11000', 1,
+
+                                                                                               ifelse(bigtable$geo_hra_code=='14000', 1,
+
+                                                                                                      ifelse(bigtable$geo_hra_code=='14100', 1,
+
+                                                                                                             ifelse(bigtable$geo_hra_code=='14200', 1,
+
+                                                                                                                    ifelse(bigtable$geo_hra_code=='20000', 1,
+
+                                                                                                                           ifelse(bigtable$geo_hra_code=='20100', 1,
+
+                                                                                                                                  ifelse(bigtable$geo_hra_code=='20200', 1,
+
+                                                                                                                                         ifelse(bigtable$geo_hra_code=='22000', 1,
+
+                                                                                                                                                ifelse(bigtable$geo_hra_code=='18000', 1,
+
+                                                                                                                                                       ifelse(bigtable$geo_hra_code=='25000', 1, 0)))))))))))))))))))
+
+ 
+
+# Seattle
+
+bigtable$Region_Seattle <- ifelse(bigtable$geo_hra_code=='2000', 1,
+
+                                  ifelse(bigtable$geo_hra_code=='2100', 1,
+
+                                         ifelse(bigtable$geo_hra_code=='2200', 1,
+
+                                                ifelse(bigtable$geo_hra_code=='2300', 1,
+
+                                                       ifelse(bigtable$geo_hra_code=='2400', 1,
+
+                                                              ifelse(bigtable$geo_hra_code=='2500', 1,
+
+                                                                     ifelse(bigtable$geo_hra_code=='2550', 1,
+
+                                                                            ifelse(bigtable$geo_hra_code=='2600', 1,
+
+                                                                                  ifelse(bigtable$geo_hra_code=='2700', 1,
+
+                                                                                          ifelse(bigtable$geo_hra_code=='2800', 1,
+
+                                                                                                 ifelse(bigtable$geo_hra_code=='2900', 1,
+
+                                                                                                        ifelse(bigtable$geo_hra_code=='2950', 1,
+
+                                                                                                               ifelse(bigtable$geo_hra_code=='2960', 1, 0)))))))))))))
+
+# East                                         
+
+bigtable$Region_East <- ifelse(bigtable$geo_hra_code=='3000', 1,
+
+                               ifelse(bigtable$geo_hra_code=='4000', 1,
+
+                                      ifelse(bigtable$geo_hra_code=='4100', 1,
+
+                                             ifelse(bigtable$geo_hra_code=='4200', 1,
+
+                                                    ifelse(bigtable$geo_hra_code=='4300', 1,
+
+                                                           ifelse(bigtable$geo_hra_code=='12000', 1,
+
+                                                                  ifelse(bigtable$geo_hra_code=='15000', 1,
+
+                                                                         ifelse(bigtable$geo_hra_code=='15100', 1,
+
+                                                                                ifelse(bigtable$geo_hra_code=='16000', 1,
+
+                                                                                       ifelse(bigtable$geo_hra_code=='17000', 1,
+
+                                                                                              ifelse(bigtable$geo_hra_code=='19000', 1,
+
+                                                                                                     ifelse(bigtable$geo_hra_code=='21000', 1,
+
+                                                                                                            ifelse(bigtable$geo_hra_code=='24000', 1, 0)))))))))))))
+
+ 
+
+# North
+
+bigtable$Region_North <- ifelse(bigtable$geo_hra_code=='6000', 1,
+
+                                ifelse(bigtable$geo_hra_code=='13000', 1,
+
+                                       ifelse(bigtable$geo_hra_code=='23000', 1, 0)))
+
+ 
+
+# Make all NA's 0's
+
+bigtable$Region_North[is.na(bigtable$Region_North)] <- 0
+
+bigtable$Region_South[is.na(bigtable$Region_South)] <- 0
+
+bigtable$Region_Seattle[is.na(bigtable$Region_Seattle)] <- 0
+
+bigtable$Region_East[is.na(bigtable$Region_East)] <- 0
+
+ 
+
+# Unknown
+
+# Replace all NA's with 999
+
+bigtable$geo_hra_code[is.na(bigtable$geo_hra_code)] <- 999
+
+ 
+
+bigtable$Region_Unknown <- ifelse(bigtable$geo_hra_code=='999', 1, 0)
+
+ 
+
+ 
+
+# HRA Total Breakdowns
+
+table(bigtable$Region_North)
+
+table(bigtable$Region_South)
+
+ 
+
+table(bigtable$Region_Seattle)
+
+table(bigtable$Region_East)
+
+table(bigtable$Region_Unknown)
+
+ 
+
+describe(bigtable$geo_hra_code)
+
+ 
+
+# Create a 5 category variable for each region including unknown
+
+bigtable$Categorical_HRA <- ifelse(bigtable$geo_hra_code=='6000', "North",
+
+                                   ifelse(bigtable$geo_hra_code=='13000', "North",
+
+                                          ifelse(bigtable$geo_hra_code=='23000', "North",
+
+                                                 ifelse(bigtable$geo_hra_code=='999', "Unknown",
+
+                                                        ifelse(bigtable$geo_hra_code=='3000', "East",
+
+                                                               ifelse(bigtable$geo_hra_code=='4000', "East",
+
+                                                                      ifelse(bigtable$geo_hra_code=='4100', "East",
+
+                                                                             ifelse(bigtable$geo_hra_code=='4200', "East",
+
+                                                                                    ifelse(bigtable$geo_hra_code=='4300', "East",
+
+                                                                                           ifelse(bigtable$geo_hra_code=='12000', "East",
+
+                                                                                                  ifelse(bigtable$geo_hra_code=='15000', "East",
+
+                                                                                                         ifelse(bigtable$geo_hra_code=='15100', "East",
+
+                                                                                                                ifelse(bigtable$geo_hra_code=='16000', "East",
+
+                                                                                                                       ifelse(bigtable$geo_hra_code=='17000', "East",
+
+                                                                                                                              ifelse(bigtable$geo_hra_code=='19000', "East",
+
+                                                                                                                                     ifelse(bigtable$geo_hra_code=='21000', "East",
+
+                                                                                                                                            ifelse(bigtable$geo_hra_code=='24000', "East",
+
+                                                                                                                                                   ifelse(bigtable$geo_hra_code=='2000', "Seattle",
+
+                                                                                                                                                          ifelse(bigtable$geo_hra_code=='2100', "Seattle",
+
+                                                                                                                                                                 ifelse(bigtable$geo_hra_code=='2200', "Seattle",
+
+                                                                                                                                                                        ifelse(bigtable$geo_hra_code=='2300', "Seattle",
+
+                                                                                                                                                                               ifelse(bigtable$geo_hra_code=='2400', "Seattle",
+
+                                                                                                                                                                                      ifelse(bigtable$geo_hra_code=='2500', "Seattle",
+
+                                                                                                                                                                                             ifelse(bigtable$geo_hra_code=='2550', "Seattle",
+
+                                                                                                                                                                                                    ifelse(bigtable$geo_hra_code=='2600', "Seattle",
+
+                                                                                                                                                                                                           ifelse(bigtable$geo_hra_code=='2700', "Seattle",
+
+                                                                                                                                                                                                                  ifelse(bigtable$geo_hra_code=='2800', "Seattle",
+
+                                                                                                                                                                                                                         ifelse(bigtable$geo_hra_code=='2900', "Seattle",
+
+                                                                                                                                                                                                                                ifelse(bigtable$geo_hra_code=='2950', "Seattle",
+
+                                                                                                                                                                                                                                       ifelse(bigtable$geo_hra_code=='2960', "Seattle",
+
+                                                                                                                                                                                                                                              ifelse(bigtable$geo_hra_code=='1000', "South",
+
+                                                                                                                                                                                                                                                     ifelse(bigtable$geo_hra_code=='5000', "South",
+
+                                                                                                                                                                                                                                                            ifelse(bigtable$geo_hra_code=='1100', "South",
+
+                                                                                                                                                                                                                                                                   ifelse(bigtable$geo_hra_code=='7000', "South",
+
+                                                                                                                                                                                                                                                                          ifelse(bigtable$geo_hra_code=='8000', "South",
+
+                                                                                                                                                                                                                                                                                 ifelse(bigtable$geo_hra_code=='9000', "South",
+
+                                                                                                                                                                                                                                                                                        ifelse(bigtable$geo_hra_code=='10000', "South",
+
+                                                                                                                                                                                                                                                                                               ifelse(bigtable$geo_hra_code=='10100', "South",
+
+                                                                                                                                                                                                                                                                                                      ifelse(bigtable$geo_hra_code=='10200', "South",
+
+                                                                                                                                                                                                                                                                                                             ifelse(bigtable$geo_hra_code=='11000', "South",
+
+                                                                                                                                                                                                                                                                                                                    ifelse(bigtable$geo_hra_code=='14000', "South",
+
+                                                                                                                                                                                                                                                                                                                           ifelse(bigtable$geo_hra_code=='14100', "South",
+
+                                                                                                                                                                                                                                                                                                                                  ifelse(bigtable$geo_hra_code=='14200', "South",
+
+                                                                                                                                                                                                                                                                                                                                         ifelse(bigtable$geo_hra_code=='20000', "South",
+
+                                                                                                                                                                                                                                                                                                                                                ifelse(bigtable$geo_hra_code=='20100', "South",
+
+                                                                                                                                                                                                                                                                                                                                                       ifelse(bigtable$geo_hra_code=='20200', "South",
+
+                                                                                                                                                                                                                                                                                                                                                              ifelse(bigtable$geo_hra_code=='22000', "South",
+
+                                                                                                                                                                                                                                                                                                                                                                     ifelse(bigtable$geo_hra_code=='18000', "South",
+
+                                                                                                                                                                                                                                                                                                                                                                            ifelse(bigtable$geo_hra_code=='25000', "South", 0)))))))))))))))))))))))))))))))))))))))))))))))))
+
+ 
+
+# HRA for people with Neither
+
+neither_HRA <-  table(bigtable$neither, bigtable$Categorical_HRA)
+
+neither_HRA[]
+
+(neither_HRA/rowSums(neither_HRA))*100
+
+rowSums(neither_HRA)
+
+ 
+
+# HRA for people with depression
+
+depression_HRA <- table(bigtable$depression, bigtable$Categorical_HRA)
+
+depression_HRA[]
+
+(depression_HRA/rowSums(depression_HRA))*100
+
+rowSums(depression_HRA)
+
+ 
+
+# HRA for CVD
+
+CVD_HRA <- table(bigtable$cardiovascular, bigtable$Categorical_HRA)
+
+CVD_HRA[]
+
+(CVD_HRA/rowSums(CVD_HRA))*100
+
+rowSums(CVD_HRA)
+
+ 
+
+# Write the bigtable dataframe to SQL
+
+DBI::dbWriteTable(conn = hhsaw16,
+
+                  name = DBI::Id(schema = "n-lsheridan", table = "cardiovasccohort2"),
+
+                  value = setDF(copy(bigtable)),
+
+                  append = F,
+
+                  overwrite = T)
+
+ 
+
+check.tempdt <- setDT(DBI::dbGetQuery(conn = hhsaw16, "SELECT * FROM [n-lsheridan].cardiovasccohort2"))
+
+check.tempdt[]
+ 
+
+# the end ----
+
+ 
