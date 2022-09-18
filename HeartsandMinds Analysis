@@ -1,0 +1,282 @@
+# Header ----
+
+# Author: Leigh Sheridan
+
+# Date: August 29th, 2022
+
+# R version: 4.2.1
+
+# Purpose: Analyze the medicaid/cardiovascular cohort dataset.
+
+#        
+
+ 
+
+ 
+
+# -------------Part 0: Set-up --------------------------------------------------
+
+rm(list=ls())
+
+# Create DB Connection
+
+
+    pacman::p_load(data.table, DBI, keyring, glue)
+
+   
+
+    devtools::source_url(https://raw.githubusercontent.com/PHSKC-APDE/apde/main/R/create_db_connection.R)
+
+    
+
+    devtools::source_url(https://raw.githubusercontent.com/PHSKC-APDE/apde/main/R/apde_keyring.R)
+
+   
+
+    hhsaw16 = create_db_connection(
+
+      server = "hhsaw",
+
+      prod = T,
+
+      interactive = F
+
+    )
+
+   
+
+    library(tidyverse)
+
+    library(dplyr)
+
+    library(data.table)
+
+    library(stats)
+
+    library(tidyr)
+
+    library(ggplot2)
+
+    library(lme4)
+
+    library(splines)
+
+ 
+
+ 
+
+  # Read in dataset 
+
+    dat <- setDT(DBI::dbGetQuery(conn = hhsaw16, "SELECT *
+
+                                  FROM [n-lsheridan].cardiovasc_cohort"))
+
+  # Read about splines
+
+    library(help = "splines")
+
+ 
+
+   
+
+# ----------- Part 1: Poisson Regression examining association between CVD and depression, with interaction terms and possible confounders
+
+   
+    confint_robust <- function (object, parm, level = 0.95, ...)
+
+    {
+
+      cf <- coef(object)
+
+      pnames <- names(cf)
+
+      if (missing(parm))
+
+        parm <- pnames
+
+      else if (is.numeric(parm))
+
+        parm <- pnames[parm]
+
+      a <- (1 - level)/2
+
+      a <- c(a, 1 - a)
+
+      pct <- stats:::format.perc(a, 3)
+
+      fac <- qnorm(a)
+
+      ci <- array(NA, dim = c(length(parm), 2L), dimnames = list(parm,
+
+                                                                 pct))
+
+      ses <- sqrt(diag(sandwich::vcovHC(object)))[parm]
+
+      ci[] <- cf[parm] + ses %o% fac
+
+      ci
+
+    }
+
+   
+
+    # glm_tidy(): clean up regression output ----
+
+    glm.tidy <- function(model, notes){
+
+      poisson <-  grepl("oisson", model$family$initialize) # identify if it is a poisson model that will need CI based on robust standard errors
+
+     
+
+      model.dt <- cbind(
+
+        data.table(summary(model)$coefficients, keep.rownames = TRUE),  # save model results as data.table
+
+        data.table(exp(coef(model))), # exponentiated coefficients
+
+        if(poisson){data.table(exp(confint_robust(model)))}else # robust CI if from Poisson Model
+
+        {data.table(exp(confint(model)))} # regular CI if from Logistic Model
+
+      )
+
+     
+
+      model.dt[, c("Estimate", "Std. Error") := NULL]
+
+      model.dt[, grep("value", names(model.dt), value = TRUE) := NULL] # use grep because can be "t value" or "z value"
+
+     
+
+      setnames(model.dt, c("rn", "Pr(>|z|)", "V1", "2.5 %", "97.5 %"), c("pred", "p", "est", "ll", "ul"))
+
+     
+
+      if(poisson){model.dt[, metric := "RR"]}else{model.dt[, metric := "OR"]}
+
+     
+
+      model.desc <- paste0(deparse(substitute(model)), ": ", notes)
+
+      model.dt[, model := model.desc] # this saves the name of the model object as a string
+
+      model.dt[p<0.05, sig := "*"]
+
+      setcolorder(model.dt, c("model", "pred", "p", "sig", "metric"))
+
+      return(model.dt)
+
+    }
+
+ 
+
+    # Model 1 - Poisson Regression + age - cvd interacts with race
+
+    m1 <- glm(depression ~ cardiovascular*race_eth_recent + splines::bs(age) + gender_recent,
+
+                data = dat,
+
+                family = "poisson")
+
+   
+
+    table(dat$depression)
+    table(dat$cardiovascular)
+
+ 
+
+       m1.dt <- glm.tidy(m1, "poisson")
+
+       head(m1.dt, 20)
+
+  
+ 
+          # Variation on Model 1
+
+          m1_var1 <- glm(depression~cardiovascular*race_eth_recent + splines::bs(age),
+
+                   data = dat,
+
+                   family = "poisson")
+
+         
+
+          m1_var1.dt <- glm.tidy(m1_var1, "poisson")
+
+          head(m1_var1.dt, 20)
+
+         
+
+          
+
+        # Variation 2 on Model 1
+
+          m1_var2 <- glm(depression~cardiovascular*race_eth_recent + gender_recent,
+
+                         data = dat,
+
+                         family = "poisson")
+
+         
+
+          m1_var2.dt <- glm.tidy(m1_var2, "poisson")
+
+          head(m1_var2.dt, 20)
+
+         
+
+    
+
+    
+
+    # Model 2: Poisson Regression + spline - age interacts with CVD
+
+     
+
+      m2 <- glm(depression ~ cardiovascular*splines::bs(age) + gender_recent + race_eth_recent,
+
+              data = dat,
+
+              family = "poisson")
+
+   
+
+      m2.dt <- glm.tidy(m2, "poisson")
+
+      head(m2.dt, 20)
+
+     
+
+      
+
+    
+
+    # Model 3: Poisson Regression + Spline, with no interaction terms at all
+
+      
+
+      m3 <- glm(depression ~ cardiovascular + race_eth_recent + splines::bs(age) + gender_recent,
+
+                data = dat,
+
+                family = "poisson")
+
+      summary(m3)
+
+      exp(coef(m3))
+      
+      
+       
+       # Model 4 - Simple depression on CVD, no interactions, poisson 
+
+       m2 <- glm(depression ~ cardiovascular,
+
+                 data = dat,
+
+                 family = "poisson")
+
+      
+
+       m7.dt <- glm.tidy(m7, "poisson")
+
+       head(m7.dt, 20)
