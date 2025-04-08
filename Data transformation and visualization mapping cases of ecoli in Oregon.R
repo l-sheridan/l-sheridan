@@ -1,5 +1,5 @@
 
-# Set-up 
+# Setting up
 install.packages("devtools")
 install.packages("cli")
 install.packages("readxl")
