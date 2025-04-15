@@ -24,10 +24,10 @@ Welcome to my project portfolio! This page shows you a summary of my projects in
       <td>Cleans and analyzes 2023 Medicare provider billing data for average costs by Diagnosis Related Group (DRG), providers, and service types.</td>
     </tr>
     <tr>
-      <td>XX</td>
-      <td>2025-05-10</td></td>
-      <td>SQL, Tableau</td>
-      <td>xxx</td>
+      <td><a href="https://public.tableau.com/app/profile/leigh.sheridan1112/viz/MedicarePartD_DrugCost_ScriptMetrics/Med_Common_Drugs"> Medicare Part D Drug Costs Tableau Dashboard</td>
+      <td>2025-04-10</td></td>
+      <td>Tableau, SQL, Excel</td>
+      <td>Examines drug costs and prescriptions, use and coverage of opioid drugs, and Medicare drug use and coverage by age group.</td>
     </tr>
     <!-- Add more rows as needed -->
   </tbody>
