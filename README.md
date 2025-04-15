@@ -18,16 +18,16 @@ Welcome to my project portfolio! This page shows you a summary of my projects in
   </thead>
   <tbody>
     <tr>
-      <td>Link</td>
-      <td>2025-04-10</td>
+      <td><a href="https://github.com/l-sheridan/Medicare-Cost-Analysis">Medicare Cost Analysis</a></td>
+      <td>2025-04-15</td>
       <td>Python, Pandas, Matplotlib</td>
-      <td>XX</td>
+      <td>Cleans and analyzes 2023 Medicare provider billing data for average costs by Diagnosis Related Group (DRG), providers, and service types.</td>
     </tr>
     <tr>
       <td>XX</td>
       <td>2025-05-10</td></td>
       <td>SQL, Tableau</td>
-      <td>XX</td>
+      <td>xxx</td>
     </tr>
     <!-- Add more rows as needed -->
   </tbody>
